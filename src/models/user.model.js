@@ -90,3 +90,68 @@ userSchema.pre("save", async function (next) {
 userSchema.methods.isPasswordCorrect = async function (password) {
   return await bcrypt.compare(password, this.password)
 }
+
+
+userSchema.methods.generateAccessToken = function () {
+  return jwt.sign(
+    {
+      _id: this._id,
+      email: this.email,
+      username: this.username,
+      fullName: this.fullName,
+      role: this.role,
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY },
+  )
+}
+
+userSchema.methods.generateRefreshToken = function () {
+  return jwt.sign(
+    {
+      _id: this._id,
+    },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY },
+  )
+}
+
+userSchema.methods.generateOTP = function () {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString()
+
+  this.otp = {
+    code: crypto.createHash("sha256").update(otp).digest("hex"),
+    expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+  }
+
+  return otp
+}
+
+// Method to generate password reset token
+userSchema.methods.getResetPasswordToken = function () {
+  const resetToken = crypto.randomBytes(20).toString("hex")
+
+  // Hash token and set to resetPasswordToken field
+  this.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex")
+
+  // Set token expire time (e.g., 15 minutes)
+  this.resetPasswordExpire = Date.now() + 15 * 60 * 1000
+
+  return resetToken
+}
+
+// Method to update role with history tracking
+userSchema.methods.updateRole = function (newRole, changedBy, reason = "") {
+  const previousRole = this.role
+  this.role = newRole
+
+  this.roleHistory.push({
+    previousRole,
+    newRole,
+    changedBy,
+    reason,
+  })
+}
+
+export const User = mongoose.model("User", userSchema)
+
