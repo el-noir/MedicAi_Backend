@@ -33,17 +33,39 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       enum: ["admin", "doctor", "user"],
+      default: "user",
     },
-  avatar: {
-    url: {
+    // Doctor-specific fields
+    specialization: {
       type: String,
-      default: ""
+      required: function () {
+        return this.role === "doctor"
+      },
     },
-    publicId: {
+    licenseNumber: {
       type: String,
-      default: ""
-    }
-  },
+      required: function () {
+        return this.role === "doctor"
+      },
+      unique: true,
+      sparse: true,
+    },
+    experience: {
+      type: Number,
+      required: function () {
+        return this.role === "doctor"
+      },
+    },
+    avatar: {
+      url: {
+        type: String,
+        default: "",
+      },
+      publicId: {
+        type: String,
+        default: "",
+      },
+    },
     refreshToken: {
       type: String,
     },
@@ -74,7 +96,6 @@ const userSchema = new mongoose.Schema(
         reason: String,
       },
     ],
-    // New fields for password reset
     resetPasswordToken: String,
     resetPasswordExpire: Date,
   },
@@ -90,7 +111,6 @@ userSchema.pre("save", async function (next) {
 userSchema.methods.isPasswordCorrect = async function (password) {
   return await bcrypt.compare(password, this.password)
 }
-
 
 userSchema.methods.generateAccessToken = function () {
   return jwt.sign(
@@ -118,33 +138,23 @@ userSchema.methods.generateRefreshToken = function () {
 
 userSchema.methods.generateOTP = function () {
   const otp = Math.floor(100000 + Math.random() * 900000).toString()
-
   this.otp = {
     code: crypto.createHash("sha256").update(otp).digest("hex"),
     expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
   }
-
   return otp
 }
 
-// Method to generate password reset token
 userSchema.methods.getResetPasswordToken = function () {
   const resetToken = crypto.randomBytes(20).toString("hex")
-
-  // Hash token and set to resetPasswordToken field
   this.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex")
-
-  // Set token expire time (e.g., 15 minutes)
   this.resetPasswordExpire = Date.now() + 15 * 60 * 1000
-
   return resetToken
 }
 
-// Method to update role with history tracking
 userSchema.methods.updateRole = function (newRole, changedBy, reason = "") {
   const previousRole = this.role
   this.role = newRole
-
   this.roleHistory.push({
     previousRole,
     newRole,
@@ -154,4 +164,3 @@ userSchema.methods.updateRole = function (newRole, changedBy, reason = "") {
 }
 
 export const User = mongoose.model("User", userSchema)
-

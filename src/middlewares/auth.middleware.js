@@ -4,14 +4,13 @@ import { User } from "../models/user.model.js"
 
 export const verifyJWT = asyncHandler(async (req, res, next) => {
   try {
-    const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer", "").trim()
+    const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "").trim()
 
     if (!token) {
       throw new ApiError("Unauthorized request", 401)
     }
 
     const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
-
     const user = await User.findById(decodedToken?._id).select("-password -refreshToken -otp")
 
     if (!user) {
@@ -39,9 +38,9 @@ export const authorizeRoles = (...roles) => {
   }
 }
 
-export const authorizeEmployee = asyncHandler(async (req, res, next) => {
-  if (!["admin", "employee"].includes(req.user.role)) {
-    throw new ApiError("Access denied. Employee or admin role required.", 403)
+export const authorizeDoctor = asyncHandler(async (req, res, next) => {
+  if (!["admin", "doctor"].includes(req.user.role)) {
+    throw new ApiError("Access denied. Doctor or admin role required.", 403)
   }
   next()
 })
@@ -49,6 +48,13 @@ export const authorizeEmployee = asyncHandler(async (req, res, next) => {
 export const authorizeAdmin = asyncHandler(async (req, res, next) => {
   if (req.user.role !== "admin") {
     throw new ApiError("Access denied. Admin role required.", 403)
+  }
+  next()
+})
+
+export const authorizeUser = asyncHandler(async (req, res, next) => {
+  if (!["admin", "doctor", "user"].includes(req.user.role)) {
+    throw new ApiError("Access denied. Valid user role required.", 403)
   }
   next()
 })

@@ -1,11 +1,9 @@
-// Async handler to avoid try-catch blocks
 export const asyncHandler = (requestHandler) => {
   return (req, res, next) => {
     Promise.resolve(requestHandler(req, res, next)).catch((err) => next(err))
   }
 }
 
-// Custom API Error class
 export class ApiError extends Error {
   constructor(message = "Something went wrong", statusCode = 500, errors = [], stack = "") {
     super(message)
@@ -22,7 +20,6 @@ export class ApiError extends Error {
   }
 }
 
-// Custom API Response class
 export class ApiResponse {
   constructor(statusCode, data, message = "Success") {
     this.statusCode = statusCode
@@ -32,18 +29,45 @@ export class ApiResponse {
   }
 }
 
-// Error middleware
 export const errorMiddleware = (err, req, res, next) => {
   console.error("ERROR: ", err)
 
-  const statusCode = err.statusCode || 500
-  const message = err.message || "Something went wrong"
-  const errors = err.errors || []
+  let error = { ...err }
+  error.message = err.message
+
+  if (err.name === "CastError") {
+    const message = "Resource not found"
+    error = new ApiError(message, 404)
+  }
+
+  if (err.code === 11000) {
+    const message = "Duplicate field value entered"
+    error = new ApiError(message, 400)
+  }
+
+  if (err.name === "ValidationError") {
+    const message = Object.values(err.errors).map((val) => val.message)
+    error = new ApiError(message, 400)
+  }
+
+  if (err.name === "JsonWebTokenError") {
+    const message = "Invalid token"
+    error = new ApiError(message, 401)
+  }
+
+  if (err.name === "TokenExpiredError") {
+    const message = "Token expired"
+    error = new ApiError(message, 401)
+  }
+
+  const statusCode = error.statusCode || 500
+  const message = error.message || "Something went wrong"
+  const errors = error.errors || []
 
   return res.status(statusCode).json({
     success: false,
     message,
     errors,
-    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+    stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
   })
 }
