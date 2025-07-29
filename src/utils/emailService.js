@@ -118,10 +118,10 @@ export const sendPasswordResetEmail = async (user, resetUrl) => {
         </p>
         
         <div style="text-align: center; margin-bottom: 20px;">
-          <a href="${resetUrl}" 
+          <a href="${resetUrl}"
              style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                   color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px;
-                   font-weight: bold; font-size: 16px;">
+                 color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px;
+                 font-weight: bold; font-size: 16px;">
             Reset Your Password
           </a>
         </div>
@@ -142,6 +142,104 @@ export const sendPasswordResetEmail = async (user, resetUrl) => {
   await sendEmail({
     email: user.email,
     subject: "Password Reset Request",
+    html,
+  })
+}
+
+export const sendPredictionShareEmail = async (patient, doctor, sharedPrediction) => {
+  // Fixed to use port 5173 for Vite frontend
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173"
+  const shareUrl = `${frontendUrl}/doctor/shared/${sharedPrediction.shareCode}`
+
+  console.log("Generating share email with URL:", shareUrl)
+
+  const html = `
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #333;">Medical Analysis Shared</h1>
+        <p style="color: #666; font-size: 16px;">A patient has shared their medical analysis with you</p>
+      </div>
+      
+      <div style="background: #f8f9fa; padding: 30px; border-radius: 10px;">
+        <h2 style="color: #333; margin-bottom: 20px;">Hi Dr. ${doctor.fullName}!</h2>
+        <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
+          <strong>${patient.fullName}</strong> has shared their medical analysis with you for review.
+        </p>
+        
+        ${
+          sharedPrediction.message
+            ? `
+        <div style="background: #e8f4fd; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+          <h4 style="color: #1976d2; margin-bottom: 10px;">Patient's Message:</h4>
+          <p style="color: #1976d2; font-style: italic;">"${sharedPrediction.message}"</p>
+        </div>
+        `
+            : ""
+        }
+        
+        <div style="text-align: center; margin-bottom: 20px;">
+          <a href="${shareUrl}"
+             style="display: inline-block; background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+                 color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px;
+                 font-weight: bold; font-size: 16px;">
+            View Analysis
+          </a>
+        </div>
+        
+        <p style="color: #888; font-size: 14px; text-align: center;">
+          This link will expire in 30 days.
+        </p>
+      </div>
+      
+      <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+        <p style="color: #888; font-size: 12px;">
+          Share Code: ${sharedPrediction.shareCode}<br>
+          Direct Link: ${shareUrl}
+        </p>
+      </div>
+    </div>
+  `
+
+  await sendEmail({
+    email: doctor.email,
+    subject: "New Medical Analysis Shared - Review Required",
+    html,
+  })
+}
+
+export const sendDoctorNotificationEmail = async (doctor, patient, sharedPrediction) => {
+  const html = `
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #333;">Analysis Shared Successfully</h1>
+        <p style="color: #666; font-size: 16px;">Your medical analysis has been shared with the doctor</p>
+      </div>
+      
+      <div style="background: #f8f9fa; padding: 30px; border-radius: 10px;">
+        <h2 style="color: #333; margin-bottom: 20px;">Hi ${patient.fullName}!</h2>
+        <p style="color: #666; line-height: 1.6; margin-bottom: 20px;">
+          Your medical analysis has been successfully shared with <strong>Dr. ${doctor.fullName}</strong> (${doctor.specialization}).
+        </p>
+        
+        <div style="background: #e8f5e8; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+          <h4 style="color: #2d5a2d; margin-bottom: 10px;">What happens next?</h4>
+          <ul style="color: #2d5a2d; margin: 0; padding-left: 20px;">
+            <li>The doctor will review your analysis</li>
+            <li>You'll receive a notification when they respond</li>
+            <li>You can track the status in your profile</li>
+          </ul>
+        </div>
+        
+        <p style="color: #888; font-size: 14px; text-align: center;">
+          Share Code: ${sharedPrediction.shareCode}
+        </p>
+      </div>
+    </div>
+  `
+
+  await sendEmail({
+    email: patient.email,
+    subject: "Analysis Shared Successfully with Doctor",
     html,
   })
 }

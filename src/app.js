@@ -51,9 +51,11 @@ app.use(cookieParser())
 
 import userRoutes from "./routes/user.route.js"
 import predictionRoutes from "./routes/prediction.routes.js"
+import sharedPredictionRoutes from './routes/sharedPrediction.route.js'
 
 app.use("/api/v1/users", userRoutes)
 app.use("/api/v1/predictions", predictionRoutes)
+app.use("/api/v1/shared-predictions", sharedPredictionRoutes)
 // Health check route
 app.get("/health", (req, res) => {
   res.status(200).json({
