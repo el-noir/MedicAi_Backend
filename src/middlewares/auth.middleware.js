@@ -1,60 +1,71 @@
-import { asyncHandler, ApiError } from "../utils/index.js"
 import jwt from "jsonwebtoken"
 import { User } from "../models/user.model.js"
+import { ApiError } from "../utils/index.js"
 
-export const verifyJWT = asyncHandler(async (req, res, next) => {
+export const verifyJWT = async (req, res, next) => {
   try {
-    const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "").trim()
+    let token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "")
 
-    if (!token) {
-      throw new ApiError("Unauthorized request", 401)
+    // Clean up token - remove any extra whitespace or invalid characters
+    if (token) {
+      token = token.trim()
+      // Check if token looks like a valid JWT (has 3 parts separated by dots)
+      const tokenParts = token.split(".")
+      if (tokenParts.length !== 3) {
+        console.error("Invalid token format - not a valid JWT:", token.substring(0, 20) + "...")
+        throw new ApiError(401, "Invalid token format")
+      }
     }
 
-    const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
-    const user = await User.findById(decodedToken?._id).select("-password -refreshToken -otp")
+    if (!token) {
+      throw new ApiError(401, "Unauthorized request - no token provided")
+    }
+
+    let decodedToken
+    try {
+      decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
+    } catch (jwtError) {
+      console.error("JWT verification failed:", jwtError.message)
+      if (jwtError.name === "TokenExpiredError") {
+        throw new ApiError(401, "Token expired")
+      } else if (jwtError.name === "JsonWebTokenError") {
+        throw new ApiError(401, "Invalid token")
+      } else {
+        throw new ApiError(401, "Token verification failed")
+      }
+    }
+
+    const user = await User.findById(decodedToken?._id).select("-password -refreshToken")
 
     if (!user) {
-      throw new ApiError("Invalid Access Token", 401)
+      throw new ApiError(401, "Invalid Access Token - user not found")
     }
 
     req.user = user
     next()
   } catch (error) {
-    throw new ApiError(401, error?.message || "Invalid Access Token")
-  }
-})
-
-export const authorizeRoles = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      throw new ApiError("Unauthorized request", 401)
-    }
-
-    if (!roles.includes(req.user.role)) {
-      throw new ApiError(`Role: ${req.user.role} is not allowed to access this resource`, 403)
-    }
-
-    next()
+    console.error("Auth middleware error:", error.message)
+    next(error)
   }
 }
 
-export const authorizeDoctor = asyncHandler(async (req, res, next) => {
-  if (!["admin", "doctor"].includes(req.user.role)) {
-    throw new ApiError("Access denied. Doctor or admin role required.", 403)
+export const authorizeUser = (req, res, next) => {
+  if (req.user.role !== "user" && req.user.role !== "admin") {
+    throw new ApiError(403, "Access denied. User role required.")
   }
   next()
-})
+}
 
-export const authorizeAdmin = asyncHandler(async (req, res, next) => {
+export const authorizeDoctor = (req, res, next) => {
+  if (req.user.role !== "doctor" && req.user.role !== "admin") {
+    throw new ApiError(403, "Access denied. Doctor role required.")
+  }
+  next()
+}
+
+export const authorizeAdmin = (req, res, next) => {
   if (req.user.role !== "admin") {
-    throw new ApiError("Access denied. Admin role required.", 403)
+    throw new ApiError(403, "Access denied. Admin role required.")
   }
   next()
-})
-
-export const authorizeUser = asyncHandler(async (req, res, next) => {
-  if (!["admin", "doctor", "user"].includes(req.user.role)) {
-    throw new ApiError("Access denied. Valid user role required.", 403)
-  }
-  next()
-})
+}

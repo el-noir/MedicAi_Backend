@@ -165,13 +165,14 @@ const verifyOTP = asyncHandler(async (req, res) => {
   const options = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
   }
 
   return res
     .status(200)
     .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
+    .cookie("refreshToken", refreshToken, { ...options, maxAge: 7 * 24 * 60 * 60 * 1000 }) // 7 days
     .json(
       new ApiResponse(
         200,
@@ -255,13 +256,14 @@ const loginUser = asyncHandler(async (req, res) => {
   const options = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
   }
 
   return res
     .status(200)
     .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
+    .cookie("refreshToken", refreshToken, { ...options, maxAge: 7 * 24 * 60 * 60 * 1000 }) // 7 days
     .json(
       new ApiResponse(
         200,
@@ -291,7 +293,7 @@ const logoutUser = asyncHandler(async (req, res) => {
   const options = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
   }
 
   return res
@@ -372,25 +374,33 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
 
   if (!incomingRefreshToken) {
-    throw new ApiError(401, "Unauthorized request")
+    throw new ApiError(401, "Unauthorized request - no refresh token")
+  }
+
+  // Clean and validate token format
+  const cleanedToken = incomingRefreshToken.trim()
+  const tokenParts = cleanedToken.split(".")
+  if (tokenParts.length !== 3) {
+    throw new ApiError(401, "Invalid refresh token format")
   }
 
   try {
-    const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET)
+    const decodedToken = jwt.verify(cleanedToken, process.env.REFRESH_TOKEN_SECRET)
     const user = await User.findById(decodedToken?._id)
 
     if (!user) {
-      throw new ApiError(401, "Invalid refresh token")
+      throw new ApiError(401, "Invalid refresh token - user not found")
     }
 
-    if (incomingRefreshToken !== user?.refreshToken) {
+    if (cleanedToken !== user?.refreshToken) {
       throw new ApiError(401, "Refresh token is expired or used")
     }
 
     const options = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
     }
 
     const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id)
@@ -398,9 +408,10 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     return res
       .status(200)
       .cookie("accessToken", accessToken, options)
-      .cookie("refreshToken", refreshToken, options)
+      .cookie("refreshToken", refreshToken, { ...options, maxAge: 7 * 24 * 60 * 60 * 1000 }) // 7 days
       .json(new ApiResponse(200, { accessToken, refreshToken }, "Access token refreshed"))
   } catch (error) {
+    console.error("Token refresh error:", error.message)
     throw new ApiError(401, error?.message || "Invalid refresh token")
   }
 })

@@ -20,7 +20,6 @@ export const sendEmail = async (options) => {
       html: options.html,
       text: options.text,
     }
-
     const info = await transporter.sendMail(mailOptions)
     console.log("Email sent: ", info.messageId)
     return info
@@ -147,11 +146,10 @@ export const sendPasswordResetEmail = async (user, resetUrl) => {
 }
 
 export const sendPredictionShareEmail = async (patient, doctor, sharedPrediction) => {
-  // Fixed to use port 5173 for Vite frontend
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173"
-  const shareUrl = `${frontendUrl}/doctor/shared/${sharedPrediction.shareCode}`
+  const shareLink = `${frontendUrl}/doctor/shared/${sharedPrediction.shareCode}`
 
-  console.log("Generating share email with URL:", shareUrl)
+  console.log("Generating share email with link:", shareLink)
 
   const html = `
     <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
@@ -178,7 +176,7 @@ export const sendPredictionShareEmail = async (patient, doctor, sharedPrediction
         }
         
         <div style="text-align: center; margin-bottom: 20px;">
-          <a href="${shareUrl}"
+          <a href="${shareLink}"
              style="display: inline-block; background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
                  color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px;
                  font-weight: bold; font-size: 16px;">
@@ -193,8 +191,10 @@ export const sendPredictionShareEmail = async (patient, doctor, sharedPrediction
       
       <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
         <p style="color: #888; font-size: 12px;">
-          Share Code: ${sharedPrediction.shareCode}<br>
-          Direct Link: ${shareUrl}
+          Direct link: ${shareLink}
+        </p>
+        <p style="color: #888; font-size: 12px;">
+          Share Code: ${sharedPrediction.shareCode}
         </p>
       </div>
     </div>
