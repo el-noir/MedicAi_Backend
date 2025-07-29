@@ -5,7 +5,7 @@ export const asyncHandler = (requestHandler) => {
 }
 
 export class ApiError extends Error {
-  constructor(message = "Something went wrong", statusCode = 500, errors = [], stack = "") {
+  constructor(statusCode = 500, message = "Something went wrong", errors = [], stack = "") {
     super(message)
     this.statusCode = statusCode
     this.errors = errors

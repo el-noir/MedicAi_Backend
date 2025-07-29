@@ -14,7 +14,7 @@ const generateAccessAndRefreshToken = async (userId) => {
     return { accessToken, refreshToken }
   } catch (error) {
     console.error("Error generating tokens:", error.message)
-    throw new ApiError("Error generating tokens", 500)
+    throw new ApiError(500, "Error generating tokens")
   }
 }
 
@@ -25,53 +25,53 @@ const registerUser = asyncHandler(async (req, res) => {
   const requiredFields = { fullName, email, password, username }
   for (const [key, value] of Object.entries(requiredFields)) {
     if (!value || value.trim() === "") {
-      throw new ApiError(`${key} is required`, 400)
+      throw new ApiError(400, `${key} is required`)
     }
   }
 
   // Validate doctor-specific fields
   if (role === "doctor") {
     if (!specialization || !licenseNumber || !experience) {
-      throw new ApiError("Specialization, license number, and experience are required for doctors", 400)
+      throw new ApiError(400, "Specialization, license number, and experience are required for doctors")
     }
     if (experience < 0) {
-      throw new ApiError("Experience must be a positive number", 400)
+      throw new ApiError(400, "Experience must be a positive number")
     }
   }
 
   // Validate email format
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   if (!emailRegex.test(email)) {
-    throw new ApiError("Invalid email format", 400)
+    throw new ApiError(400, "Invalid email format")
   }
 
   // Validate username length
   if (username.length < 3) {
-    throw new ApiError("Username must be at least 3 characters long", 400)
+    throw new ApiError(400, "Username must be at least 3 characters long")
   }
 
   // Validate password strength
   if (password.length < 6) {
-    throw new ApiError("Password must be at least 6 characters long", 400)
+    throw new ApiError(400, "Password must be at least 6 characters long")
   }
 
   // Validate role
   const validRoles = ["user", "doctor"]
   if (role && !validRoles.includes(role)) {
-    throw new ApiError("Invalid role. Must be 'user' or 'doctor'", 400)
+    throw new ApiError(400, "Invalid role. Must be 'user' or 'doctor'")
   }
 
   // Check if user already exists
   const existedUser = await User.findOne({ $or: [{ username }, { email }] })
   if (existedUser) {
-    throw new ApiError("Email or username already exists", 409)
+    throw new ApiError(409, "Email or username already exists")
   }
 
   // Check if license number already exists for doctors
   if (role === "doctor") {
     const existingDoctor = await User.findOne({ licenseNumber })
     if (existingDoctor) {
-      throw new ApiError("License number already exists", 409)
+      throw new ApiError(409, "License number already exists")
     }
   }
 
@@ -118,7 +118,7 @@ const registerUser = asyncHandler(async (req, res) => {
       )
   } catch (error) {
     console.error("Error during user creation:", error)
-    throw new ApiError("Failed to create user", 500)
+    throw new ApiError(500, "Failed to create user")
   }
 })
 
@@ -126,23 +126,23 @@ const verifyOTP = asyncHandler(async (req, res) => {
   const { email, otp } = req.body
 
   if (!email || !otp) {
-    throw new ApiError("Email and OTP are required", 400)
+    throw new ApiError(400, "Email and OTP are required")
   }
 
   const user = await User.findOne({ email })
   if (!user) {
-    throw new ApiError("User not found", 404)
+    throw new ApiError(404, "User not found")
   }
 
   // Check if OTP is expired
   if (!user.otp.expiresAt || user.otp.expiresAt < Date.now()) {
-    throw new ApiError("OTP has expired", 400)
+    throw new ApiError(400, "OTP has expired")
   }
 
   // Verify OTP
   const hashedOTP = crypto.createHash("sha256").update(otp).digest("hex")
   if (hashedOTP !== user.otp.code) {
-    throw new ApiError("Invalid OTP", 400)
+    throw new ApiError(400, "Invalid OTP")
   }
 
   // Mark user as verified and clear OTP
@@ -189,16 +189,16 @@ const resendOTP = asyncHandler(async (req, res) => {
   const { email } = req.body
 
   if (!email) {
-    throw new ApiError("Email is required", 400)
+    throw new ApiError(400, "Email is required")
   }
 
   const user = await User.findOne({ email })
   if (!user) {
-    throw new ApiError("User not found", 404)
+    throw new ApiError(404, "User not found")
   }
 
   if (user.isVerified) {
-    throw new ApiError("User is already verified", 400)
+    throw new ApiError(400, "User is already verified")
   }
 
   // Generate new OTP
@@ -211,7 +211,7 @@ const resendOTP = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, {}, "OTP sent successfully"))
   } catch (emailError) {
     console.error("Failed to send OTP email:", emailError)
-    throw new ApiError("Failed to send OTP email", 500)
+    throw new ApiError(500, "Failed to send OTP email")
   }
 })
 
@@ -219,12 +219,12 @@ const loginUser = asyncHandler(async (req, res) => {
   const { email, username, password } = req.body
 
   if (!username && !email) {
-    throw new ApiError("Please provide username or email", 400)
+    throw new ApiError(400, "Please provide username or email")
   }
 
   const user = await User.findOne({ $or: [{ username }, { email }] })
   if (!user) {
-    throw new ApiError("User not found", 401)
+    throw new ApiError(401, "User not found")
   }
 
   // Check if user is verified
@@ -240,12 +240,12 @@ const loginUser = asyncHandler(async (req, res) => {
       console.error("Failed to send OTP email:", emailError)
     }
 
-    throw new ApiError("Account not verified. A new OTP has been sent to your email.", 401)
+    throw new ApiError(401, "Account not verified. A new OTP has been sent to your email.")
   }
 
   const isPasswordValid = await user.isPasswordCorrect(password)
   if (!isPasswordValid) {
-    throw new ApiError("Invalid credentials", 401)
+    throw new ApiError(401, "Invalid credentials")
   }
 
   const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id)
@@ -309,20 +309,20 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body
 
   if (!email) {
-    throw new ApiError("Email is required", 400)
+    throw new ApiError(400, "Email is required")
   }
 
   const user = await User.findOne({ email })
   if (!user) {
-    throw new ApiError("User not found", 404)
+    throw new ApiError(404, "User not found")
   }
 
   // Generate reset token
   const resetToken = user.getResetPasswordToken()
   await user.save({ validateBeforeSave: false })
 
-  // Create reset URL
-  const resetUrl = `${req.protocol}://${req.get("host")}/api/v1/users/reset-password/${resetToken}`
+  // Create reset URL - point to frontend instead of backend
+  const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password/${resetToken}`
 
   try {
     await sendPasswordResetEmail(user, resetUrl)
@@ -331,7 +331,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
     user.resetPasswordToken = undefined
     user.resetPasswordExpire = undefined
     await user.save({ validateBeforeSave: false })
-    throw new ApiError("Email could not be sent", 500)
+    throw new ApiError(500, "Email could not be sent")
   }
 })
 
@@ -340,11 +340,11 @@ const resetPassword = asyncHandler(async (req, res) => {
   const { password } = req.body
 
   if (!password) {
-    throw new ApiError("Password is required", 400)
+    throw new ApiError(400, "Password is required")
   }
 
   if (password.length < 6) {
-    throw new ApiError("Password must be at least 6 characters long", 400)
+    throw new ApiError(400, "Password must be at least 6 characters long")
   }
 
   // Hash token and find user
@@ -356,7 +356,7 @@ const resetPassword = asyncHandler(async (req, res) => {
   })
 
   if (!user) {
-    throw new ApiError("Password reset token is invalid or has expired", 400)
+    throw new ApiError(400, "Password reset token is invalid or has expired")
   }
 
   // Set new password
@@ -372,7 +372,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
 
   if (!incomingRefreshToken) {
-    throw new ApiError("Unauthorized request", 401)
+    throw new ApiError(401, "Unauthorized request")
   }
 
   try {
@@ -380,11 +380,11 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     const user = await User.findById(decodedToken?._id)
 
     if (!user) {
-      throw new ApiError("Invalid refresh token", 401)
+      throw new ApiError(401, "Invalid refresh token")
     }
 
     if (incomingRefreshToken !== user?.refreshToken) {
-      throw new ApiError("Refresh token is expired or used", 401)
+      throw new ApiError(401, "Refresh token is expired or used")
     }
 
     const options = {
