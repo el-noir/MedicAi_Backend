@@ -144,7 +144,6 @@ export const sendPasswordResetEmail = async (user, resetUrl) => {
     html,
   })
 }
-<<<<<<< HEAD
 
 export const sendPredictionShareEmail = async (patient, doctor, sharedPrediction) => {
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173"
@@ -244,5 +243,4 @@ export const sendDoctorNotificationEmail = async (doctor, patient, sharedPredict
     html,
   })
 }
-=======
->>>>>>> parent of 6fc7e86 (Predication Data Access to Doctor)
+
