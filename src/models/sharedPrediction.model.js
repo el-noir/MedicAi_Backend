@@ -2,17 +2,17 @@ import mongoose from "mongoose"
 
 const sharedPredictionSchema = new mongoose.Schema(
   {
-    prediction: {
+    predictionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Prediction",
       required: true,
     },
-    patient: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-    doctor: {
+    doctorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
@@ -21,42 +21,44 @@ const sharedPredictionSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      index: true,
     },
     message: {
       type: String,
-      maxlength: 500,
+      default: "",
     },
     status: {
       type: String,
-      enum: ["pending", "viewed", "responded"],
-      default: "pending",
+      enum: ["active", "responded", "revoked"],
+      default: "active",
     },
     doctorResponse: {
-      message: String,
-      recommendations: [String],
-      followUpRequired: {
-        type: Boolean,
-        default: false,
+      type: String,
+      default: "",
+    },
+    doctorRecommendations: [
+      {
+        type: String,
       },
-      respondedAt: Date,
-    },
-    expiresAt: {
+    ],
+    lastViewedAt: {
       type: Date,
-      default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     },
-    viewedAt: Date,
-    isActive: {
-      type: Boolean,
-      default: true,
+    respondedAt: {
+      type: Date,
+    },
+    revokedAt: {
+      type: Date,
     },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+  },
 )
 
-// Index for faster queries
-sharedPredictionSchema.index({ patient: 1, doctor: 1 })
-sharedPredictionSchema.index({ shareCode: 1 })
-sharedPredictionSchema.index({ doctor: 1, status: 1 })
-sharedPredictionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+// Index for efficient queries
+sharedPredictionSchema.index({ userId: 1, createdAt: -1 })
+sharedPredictionSchema.index({ doctorId: 1, status: 1, createdAt: -1 })
+sharedPredictionSchema.index({ shareCode: 1, doctorId: 1 })
 
 export const SharedPrediction = mongoose.model("SharedPrediction", sharedPredictionSchema)

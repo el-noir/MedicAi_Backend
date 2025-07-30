@@ -1,8 +1,8 @@
-import { asyncHandler, ApiError, ApiResponse } from "../utils/index.js"
 import { SharedPrediction } from "../models/sharedPrediction.model.js"
 import { Prediction } from "../models/prediction.model.js"
 import { User } from "../models/user.model.js"
-import { sendPredictionShareEmail, sendDoctorNotificationEmail } from "../utils/emailService.js"
+import { ApiError, ApiResponse } from "../utils/index.js"
+import { sendEmail } from "../utils/emailService.js"
 import crypto from "crypto"
 
 // Generate unique share code
@@ -11,265 +11,332 @@ const generateShareCode = () => {
 }
 
 // Share prediction with doctor
-const sharePredictionWithDoctor = asyncHandler(async (req, res) => {
-  const { predictionId, doctorEmail, message } = req.body
-
-  // Validate required fields
-  if (!predictionId || !doctorEmail) {
-    throw new ApiError(400, "Prediction ID and doctor email are required")
-  }
-
+export const sharePrediction = async (req, res, next) => {
   try {
+    const { predictionId, doctorEmail, message } = req.body
+    const userId = req.user._id
+
+    // Validate required fields
+    if (!predictionId || !doctorEmail) {
+      throw new ApiError(400, "Prediction ID and doctor email are required")
+    }
+
     // Check if prediction exists and belongs to user
     const prediction = await Prediction.findOne({
       _id: predictionId,
-      user: req.user._id,
-      isDeleted: false,
+      userId: userId,
     })
 
     if (!prediction) {
-      throw new ApiError(404, "Prediction not found")
+      throw new ApiError(404, "Prediction not found or access denied")
     }
 
-    // Find doctor by email
+    // Check if doctor exists
     const doctor = await User.findOne({
-      email: doctorEmail.toLowerCase(),
+      email: doctorEmail,
       role: "doctor",
-      isVerified: true,
-    })
+    }).select("-password -refreshToken")
 
     if (!doctor) {
-      throw new ApiError(404, "Doctor not found or not verified")
+      throw new ApiError(404, "Doctor not found with this email address")
     }
 
     // Check if already shared with this doctor
     const existingShare = await SharedPrediction.findOne({
-      prediction: predictionId,
-      patient: req.user._id,
-      doctor: doctor._id,
-      isActive: true,
+      predictionId,
+      doctorId: doctor._id,
+      status: "active",
     })
 
     if (existingShare) {
       throw new ApiError(400, "Prediction already shared with this doctor")
     }
 
-    // Create shared prediction
+    // Create share code
     const shareCode = generateShareCode()
+
+    // Create shared prediction record
     const sharedPrediction = await SharedPrediction.create({
-      prediction: predictionId,
-      patient: req.user._id,
-      doctor: doctor._id,
+      predictionId,
+      userId,
+      doctorId: doctor._id,
       shareCode,
       message: message || "",
+      status: "active",
     })
 
-    // Populate the shared prediction
-    await sharedPrediction.populate([
-      { path: "prediction" },
-      { path: "patient", select: "fullName email" },
-      { path: "doctor", select: "fullName email specialization" },
-    ])
-
-    // Send notification emails
+    // Send email notification to doctor
     try {
-      await sendPredictionShareEmail(req.user, doctor, sharedPrediction)
-      await sendDoctorNotificationEmail(doctor, req.user, sharedPrediction)
+      await sendEmail({
+        to: doctorEmail,
+        subject: "New Medical Analysis Shared With You",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #0891b2;">New Medical Analysis Shared</h2>
+            <p>Hello Dr. ${doctor.fullName},</p>
+            <p>A patient has shared their medical analysis with you for review.</p>
+            
+            <div style="background-color: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #0891b2; margin-top: 0;">Analysis Details:</h3>
+              <p><strong>Patient:</strong> ${req.user.fullName}</p>
+              <p><strong>Analysis Date:</strong> ${new Date(prediction.timestamp).toLocaleDateString()}</p>
+              <p><strong>Condition:</strong> ${prediction.result?.prediction || "N/A"}</p>
+              ${message ? `<p><strong>Patient Message:</strong> ${message}</p>` : ""}
+            </div>
+            
+            <p>Please log in to your MedicAI account to review the complete analysis.</p>
+            <p>Share Code: <strong>${shareCode}</strong></p>
+            
+            <div style="margin: 30px 0;">
+              <a href="${process.env.FRONTEND_URL}/doctor/shared-predictions" 
+                 style="background-color: #0891b2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                View Analysis
+              </a>
+            </div>
+            
+            <p style="color: #666; font-size: 14px;">
+              This is an automated message from MedicAI. Please do not reply to this email.
+            </p>
+          </div>
+        `,
+      })
     } catch (emailError) {
-      console.error("Failed to send notification emails:", emailError)
+      console.error("Failed to send email notification:", emailError)
+      // Don't fail the request if email fails
     }
 
-    return res.status(201).json(new ApiResponse(201, sharedPrediction, "Prediction shared successfully with doctor"))
+    // Populate the response
+    await sharedPrediction.populate([
+      { path: "predictionId", select: "symptoms result timestamp" },
+      { path: "doctorId", select: "fullName email" },
+    ])
+
+    res.status(201).json(new ApiResponse(201, sharedPrediction, "Prediction shared successfully"))
   } catch (error) {
-    console.error("Error sharing prediction:", error)
-    throw new ApiError(500, "Failed to share prediction")
+    next(error)
   }
-})
+}
 
 // Get user's shared predictions
-const getUserSharedPredictions = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10 } = req.query
-
+export const getUserSharedPredictions = async (req, res, next) => {
   try {
-    const skip = (Number.parseInt(page) - 1) * Number.parseInt(limit)
+    const userId = req.user._id
+    const { page = 1, limit = 10 } = req.query
 
-    const sharedPredictions = await SharedPrediction.find({
-      patient: req.user._id,
-      isActive: true,
-    })
-      .populate([{ path: "prediction" }, { path: "doctor", select: "fullName email specialization experience" }])
+    const skip = (page - 1) * limit
+
+    const sharedPredictions = await SharedPrediction.find({ userId })
+      .populate([
+        { path: "predictionId", select: "symptoms result timestamp" },
+        { path: "doctorId", select: "fullName email" },
+      ])
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number.parseInt(limit))
 
-    const totalShared = await SharedPrediction.countDocuments({
-      patient: req.user._id,
-      isActive: true,
-    })
+    const total = await SharedPrediction.countDocuments({ userId })
 
-    return res.status(200).json(
+    res.status(200).json(
       new ApiResponse(
         200,
         {
           sharedPredictions,
-          totalShared,
-          currentPage: Number.parseInt(page),
-          totalPages: Math.ceil(totalShared / Number.parseInt(limit)),
+          pagination: {
+            currentPage: Number.parseInt(page),
+            totalPages: Math.ceil(total / limit),
+            totalItems: total,
+            hasNextPage: page * limit < total,
+            hasPrevPage: page > 1,
+          },
         },
         "Shared predictions fetched successfully",
       ),
     )
   } catch (error) {
-    console.error("Error fetching shared predictions:", error)
-    throw new ApiError(500, "Failed to fetch shared predictions")
+    next(error)
   }
-})
+}
 
 // Get doctor's received predictions
-const getDoctorReceivedPredictions = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, status = "all" } = req.query
-
+export const getDoctorReceivedPredictions = async (req, res, next) => {
   try {
-    const skip = (Number.parseInt(page) - 1) * Number.parseInt(limit)
-    const filter = {
-      doctor: req.user._id,
-      isActive: true,
-    }
+    const doctorId = req.user._id
+    const { page = 1, limit = 10, status = "active" } = req.query
 
+    const skip = (page - 1) * limit
+
+    const query = { doctorId }
     if (status !== "all") {
-      filter.status = status
+      query.status = status
     }
 
-    const receivedPredictions = await SharedPrediction.find(filter)
-      .populate([{ path: "prediction" }, { path: "patient", select: "fullName email age" }])
+    const receivedPredictions = await SharedPrediction.find(query)
+      .populate([
+        { path: "predictionId", select: "symptoms result timestamp" },
+        { path: "userId", select: "fullName email" },
+      ])
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number.parseInt(limit))
 
-    const totalReceived = await SharedPrediction.countDocuments(filter)
+    const total = await SharedPrediction.countDocuments(query)
 
-    return res.status(200).json(
+    res.status(200).json(
       new ApiResponse(
         200,
         {
           receivedPredictions,
-          totalReceived,
-          currentPage: Number.parseInt(page),
-          totalPages: Math.ceil(totalReceived / Number.parseInt(limit)),
+          pagination: {
+            currentPage: Number.parseInt(page),
+            totalPages: Math.ceil(total / limit),
+            totalItems: total,
+            hasNextPage: page * limit < total,
+            hasPrevPage: page > 1,
+          },
         },
         "Received predictions fetched successfully",
       ),
     )
   } catch (error) {
-    console.error("Error fetching received predictions:", error)
-    throw new ApiError(500, "Failed to fetch received predictions")
+    next(error)
   }
-})
+}
 
-// View shared prediction (for doctors)
-const viewSharedPrediction = asyncHandler(async (req, res) => {
-  const { shareCode } = req.params
-
+// View shared prediction by share code
+export const viewSharedPrediction = async (req, res, next) => {
   try {
+    const { shareCode } = req.params
+    const doctorId = req.user._id
+
     const sharedPrediction = await SharedPrediction.findOne({
       shareCode,
-      doctor: req.user._id,
-      isActive: true,
-    }).populate([{ path: "prediction" }, { path: "patient", select: "fullName email age" }])
+      doctorId,
+      status: "active",
+    }).populate([
+      { path: "predictionId", select: "symptoms result timestamp" },
+      { path: "userId", select: "fullName email" },
+    ])
 
     if (!sharedPrediction) {
       throw new ApiError(404, "Shared prediction not found or access denied")
     }
 
-    // Mark as viewed if not already viewed
-    if (!sharedPrediction.viewedAt) {
-      sharedPrediction.viewedAt = new Date()
-      sharedPrediction.status = "viewed"
-      await sharedPrediction.save()
-    }
+    // Update last viewed timestamp
+    sharedPrediction.lastViewedAt = new Date()
+    await sharedPrediction.save()
 
-    return res.status(200).json(new ApiResponse(200, sharedPrediction, "Shared prediction fetched successfully"))
+    res.status(200).json(new ApiResponse(200, sharedPrediction, "Shared prediction fetched successfully"))
   } catch (error) {
-    console.error("Error viewing shared prediction:", error)
-    throw new ApiError(500, "Failed to view shared prediction")
+    next(error)
   }
-})
+}
 
-// Doctor response to shared prediction
-const respondToSharedPrediction = asyncHandler(async (req, res) => {
-  const { shareCode } = req.params
-  const { message, recommendations, followUpRequired } = req.body
-
-  if (!message) {
-    throw new ApiError(400, "Response message is required")
-  }
-
+// Respond to shared prediction
+export const respondToSharedPrediction = async (req, res, next) => {
   try {
+    const { shareCode } = req.params
+    const { response, recommendations } = req.body
+    const doctorId = req.user._id
+
+    if (!response) {
+      throw new ApiError(400, "Response is required")
+    }
+
     const sharedPrediction = await SharedPrediction.findOne({
       shareCode,
-      doctor: req.user._id,
-      isActive: true,
-    }).populate([{ path: "prediction" }, { path: "patient", select: "fullName email" }])
+      doctorId,
+      status: "active",
+    }).populate([
+      { path: "predictionId", select: "symptoms result timestamp" },
+      { path: "userId", select: "fullName email" },
+    ])
 
     if (!sharedPrediction) {
       throw new ApiError(404, "Shared prediction not found or access denied")
     }
 
-    // Update with doctor's response
-    sharedPrediction.doctorResponse = {
-      message,
-      recommendations: recommendations || [],
-      followUpRequired: followUpRequired || false,
-      respondedAt: new Date(),
-    }
+    // Update shared prediction with doctor's response
+    sharedPrediction.doctorResponse = response
+    sharedPrediction.doctorRecommendations = recommendations || []
+    sharedPrediction.respondedAt = new Date()
     sharedPrediction.status = "responded"
 
     await sharedPrediction.save()
 
-    // Send notification to patient
+    // Send email notification to patient
     try {
-      // You can implement sendDoctorResponseEmail function
-      console.log("Doctor response saved, notification should be sent to patient")
+      await sendEmail({
+        to: sharedPrediction.userId.email,
+        subject: "Doctor Response to Your Medical Analysis",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #0891b2;">Doctor Response Received</h2>
+            <p>Hello ${sharedPrediction.userId.fullName},</p>
+            <p>Dr. ${req.user.fullName} has reviewed your medical analysis and provided a response.</p>
+            
+            <div style="background-color: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #0891b2; margin-top: 0;">Doctor's Response:</h3>
+              <p>${response}</p>
+              
+              ${
+                recommendations && recommendations.length > 0
+                  ? `
+                <h4 style="color: #0891b2;">Recommendations:</h4>
+                <ul>
+                  ${recommendations.map((rec) => `<li>${rec}</li>`).join("")}
+                </ul>
+              `
+                  : ""
+              }
+            </div>
+            
+            <p>Please log in to your MedicAI account to view the complete response.</p>
+            
+            <div style="margin: 30px 0;">
+              <a href="${process.env.FRONTEND_URL}/profile" 
+                 style="background-color: #0891b2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                View Response
+              </a>
+            </div>
+            
+            <p style="color: #666; font-size: 14px;">
+              This is an automated message from MedicAI. Please do not reply to this email.
+            </p>
+          </div>
+        `,
+      })
     } catch (emailError) {
-      console.error("Failed to send response notification:", emailError)
+      console.error("Failed to send email notification:", emailError)
     }
 
-    return res.status(200).json(new ApiResponse(200, sharedPrediction, "Response sent successfully"))
+    res.status(200).json(new ApiResponse(200, sharedPrediction, "Response submitted successfully"))
   } catch (error) {
-    console.error("Error responding to shared prediction:", error)
-    throw new ApiError(500, "Failed to send response")
+    next(error)
   }
-})
+}
 
 // Revoke shared prediction access
-const revokeSharedPrediction = asyncHandler(async (req, res) => {
-  const { shareId } = req.params
-
+export const revokeSharedPrediction = async (req, res, next) => {
   try {
+    const { shareId } = req.params
+    const userId = req.user._id
+
     const sharedPrediction = await SharedPrediction.findOne({
       _id: shareId,
-      patient: req.user._id,
+      userId,
+      status: { $ne: "revoked" },
     })
 
     if (!sharedPrediction) {
-      throw new ApiError(404, "Shared prediction not found")
+      throw new ApiError(404, "Shared prediction not found or already revoked")
     }
 
-    sharedPrediction.isActive = false
+    sharedPrediction.status = "revoked"
+    sharedPrediction.revokedAt = new Date()
     await sharedPrediction.save()
 
-    return res.status(200).json(new ApiResponse(200, {}, "Access revoked successfully"))
+    res.status(200).json(new ApiResponse(200, sharedPrediction, "Prediction access revoked successfully"))
   } catch (error) {
-    console.error("Error revoking shared prediction:", error)
-    throw new ApiError(500, "Failed to revoke access")
+    next(error)
   }
-})
-
-export {
-  sharePredictionWithDoctor,
-  getUserSharedPredictions,
-  getDoctorReceivedPredictions,
-  viewSharedPrediction,
-  respondToSharedPrediction,
-  revokeSharedPrediction,
 }

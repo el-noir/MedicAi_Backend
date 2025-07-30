@@ -1,38 +1,98 @@
 import { asyncHandler, ApiError, ApiResponse } from "../utils/index.js"
 import { Prediction } from "../models/prediction.model.js"
+import mongoose from "mongoose"
 
 // Create a new prediction
 const createPrediction = asyncHandler(async (req, res) => {
-  const { symptoms, additionalInfo, result, flaskResponse } = req.body
+  const {
+    age,
+    sex,
+    cp,
+    trestbps,
+    chol,
+    fbs,
+    restecg,
+    thalach,
+    exang,
+    oldpeak,
+    slope,
+    ca,
+    thal,
+    prediction,
+    confidence,
+    riskLevel,
+    notes,
+  } = req.body
 
   // Validate required fields
-  if (!symptoms || !Array.isArray(symptoms) || symptoms.length === 0) {
-    throw new ApiError(400, "Symptoms array is required and cannot be empty")
+  const requiredFields = {
+    age,
+    sex,
+    cp,
+    trestbps,
+    chol,
+    fbs,
+    restecg,
+    thalach,
+    exang,
+    oldpeak,
+    slope,
+    ca,
+    thal,
+    prediction,
+    confidence,
+    riskLevel,
   }
 
-  if (!result || !result.prediction) {
-    throw new ApiError(400, "Prediction result is required")
+  for (const [key, value] of Object.entries(requiredFields)) {
+    if (value === undefined || value === null) {
+      throw new ApiError(400, `${key} is required`)
+    }
+  }
+
+  // Validate ranges
+  if (age < 0 || age > 120) throw new ApiError(400, "Age must be between 0 and 120")
+  if (!["M", "F"].includes(sex)) throw new ApiError(400, "Sex must be M or F")
+  if (cp < 0 || cp > 3) throw new ApiError(400, "Chest pain type must be between 0 and 3")
+  if (trestbps < 80 || trestbps > 200) throw new ApiError(400, "Blood pressure must be between 80 and 200")
+  if (chol < 100 || chol > 600) throw new ApiError(400, "Cholesterol must be between 100 and 600")
+  if (![0, 1].includes(fbs)) throw new ApiError(400, "Fasting blood sugar must be 0 or 1")
+  if (restecg < 0 || restecg > 2) throw new ApiError(400, "Resting ECG must be between 0 and 2")
+  if (thalach < 60 || thalach > 220) throw new ApiError(400, "Max heart rate must be between 60 and 220")
+  if (![0, 1].includes(exang)) throw new ApiError(400, "Exercise induced angina must be 0 or 1")
+  if (oldpeak < 0 || oldpeak > 10) throw new ApiError(400, "ST depression must be between 0 and 10")
+  if (slope < 0 || slope > 2) throw new ApiError(400, "Slope must be between 0 and 2")
+  if (ca < 0 || ca > 4) throw new ApiError(400, "Number of vessels must be between 0 and 4")
+  if (thal < 0 || thal > 3) throw new ApiError(400, "Thalassemia must be between 0 and 3")
+  if (![0, 1].includes(prediction)) throw new ApiError(400, "Prediction must be 0 or 1")
+  if (confidence < 0 || confidence > 1) throw new ApiError(400, "Confidence must be between 0 and 1")
+  if (!["Low", "Medium", "High"].includes(riskLevel)) {
+    throw new ApiError(400, "Risk level must be Low, Medium, or High")
   }
 
   try {
-    // Create prediction document
-    const prediction = await Prediction.create({
-      user: req.user._id,
-      symptoms,
-      additionalInfo: additionalInfo || {},
-      result: {
-        prediction: result.prediction,
-        confidence: result.confidence || 0,
-        recommendations: result.recommendations || [],
-        riskLevel: result.riskLevel || "Low",
-      },
-      flaskResponse: flaskResponse || {},
+    const newPrediction = await Prediction.create({
+      userId: req.user._id,
+      age,
+      sex,
+      cp,
+      trestbps,
+      chol,
+      fbs,
+      restecg,
+      thalach,
+      exang,
+      oldpeak,
+      slope,
+      ca,
+      thal,
+      prediction,
+      confidence,
+      riskLevel,
+      notes: notes || "",
     })
 
-    // Populate user information
-    await prediction.populate("user", "fullName email username")
-
-    return res.status(201).json(new ApiResponse(201, prediction, "Prediction saved successfully"))
+    return res.status(201).json(new ApiResponse(201, newPrediction, "Prediction saved successfully"))
   } catch (error) {
     console.error("Error creating prediction:", error)
     throw new ApiError(500, "Failed to save prediction")
@@ -41,36 +101,35 @@ const createPrediction = asyncHandler(async (req, res) => {
 
 // Get user's predictions
 const getUserPredictions = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, sortBy = "timestamp", sortOrder = "desc" } = req.query
+  const { page = 1, limit = 10, riskLevel, prediction } = req.query
+
+  const filter = { userId: req.user._id }
+
+  if (riskLevel) {
+    filter.riskLevel = riskLevel
+  }
+
+  if (prediction !== undefined) {
+    filter.prediction = parseInt(prediction)
+  }
 
   try {
-    const skip = (Number.parseInt(page) - 1) * Number.parseInt(limit)
-    const sort = { [sortBy]: sortOrder === "desc" ? -1 : 1 }
+    const predictions = await Prediction.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .exec()
 
-    const predictions = await Prediction.find({
-      user: req.user._id,
-      isDeleted: false,
-    })
-      .sort(sort)
-      .skip(skip)
-      .limit(Number.parseInt(limit))
-      .populate("user", "fullName email username")
-
-    const totalPredictions = await Prediction.countDocuments({
-      user: req.user._id,
-      isDeleted: false,
-    })
+    const total = await Prediction.countDocuments(filter)
 
     return res.status(200).json(
       new ApiResponse(
         200,
         {
           predictions,
-          totalPredictions,
-          currentPage: Number.parseInt(page),
-          totalPages: Math.ceil(totalPredictions / Number.parseInt(limit)),
-          hasNextPage: skip + predictions.length < totalPredictions,
-          hasPrevPage: Number.parseInt(page) > 1,
+          totalPages: Math.ceil(total / limit),
+          currentPage: page,
+          total,
         },
         "Predictions fetched successfully",
       ),
@@ -83,14 +142,17 @@ const getUserPredictions = asyncHandler(async (req, res) => {
 
 // Get single prediction
 const getPredictionById = asyncHandler(async (req, res) => {
-  const { predictionId } = req.params
+  const { id } = req.params
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid prediction ID")
+  }
 
   try {
     const prediction = await Prediction.findOne({
-      _id: predictionId,
-      user: req.user._id,
-      isDeleted: false,
-    }).populate("user", "fullName email username")
+      _id: id,
+      userId: req.user._id,
+    })
 
     if (!prediction) {
       throw new ApiError(404, "Prediction not found")
@@ -103,23 +165,23 @@ const getPredictionById = asyncHandler(async (req, res) => {
   }
 })
 
-// Delete prediction (soft delete)
+// Delete prediction
 const deletePrediction = asyncHandler(async (req, res) => {
-  const { predictionId } = req.params
+  const { id } = req.params
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid prediction ID")
+  }
 
   try {
-    const prediction = await Prediction.findOne({
-      _id: predictionId,
-      user: req.user._id,
-      isDeleted: false,
+    const prediction = await Prediction.findOneAndDelete({
+      _id: id,
+      userId: req.user._id,
     })
 
     if (!prediction) {
       throw new ApiError(404, "Prediction not found")
     }
-
-    prediction.isDeleted = true
-    await prediction.save()
 
     return res.status(200).json(new ApiResponse(200, {}, "Prediction deleted successfully"))
   } catch (error) {
@@ -131,75 +193,36 @@ const deletePrediction = asyncHandler(async (req, res) => {
 // Get prediction statistics
 const getPredictionStats = asyncHandler(async (req, res) => {
   try {
-    const userId = req.user._id
-
-    // Get total predictions
-    const totalPredictions = await Prediction.countDocuments({
-      user: userId,
-      isDeleted: false,
-    })
-
-    // Get predictions this month
-    const startOfMonth = new Date()
-    startOfMonth.setDate(1)
-    startOfMonth.setHours(0, 0, 0, 0)
-
-    const thisMonthPredictions = await Prediction.countDocuments({
-      user: userId,
-      isDeleted: false,
-      timestamp: { $gte: startOfMonth },
-    })
-
-    // Get average confidence
-    const avgConfidenceResult = await Prediction.aggregate([
-      {
-        $match: {
-          user: userId,
-          isDeleted: false,
-          "result.confidence": { $exists: true, $ne: null },
-        },
-      },
+    const stats = await Prediction.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(req.user._id) } },
       {
         $group: {
           _id: null,
-          avgConfidence: { $avg: "$result.confidence" },
+          totalPredictions: { $sum: 1 },
+          heartDiseaseCount: { $sum: { $cond: [{ $eq: ["$prediction", 1] }, 1, 0] } },
+          noHeartDiseaseCount: { $sum: { $cond: [{ $eq: ["$prediction", 0] }, 1, 0] } },
+          highRiskCount: { $sum: { $cond: [{ $eq: ["$riskLevel", "High"] }, 1, 0] } },
+          mediumRiskCount: { $sum: { $cond: [{ $eq: ["$riskLevel", "Medium"] }, 1, 0] } },
+          lowRiskCount: { $sum: { $cond: [{ $eq: ["$riskLevel", "Low"] }, 1, 0] } },
+          avgConfidence: { $avg: "$confidence" },
         },
       },
     ])
 
-    const avgConfidence = avgConfidenceResult.length > 0 ? Math.round(avgConfidenceResult[0].avgConfidence) : 0
+    const result = stats[0] || {
+      totalPredictions: 0,
+      heartDiseaseCount: 0,
+      noHeartDiseaseCount: 0,
+      highRiskCount: 0,
+      mediumRiskCount: 0,
+      lowRiskCount: 0,
+      avgConfidence: 0,
+    }
 
-    // Get risk level distribution
-    const riskDistribution = await Prediction.aggregate([
-      {
-        $match: {
-          user: userId,
-          isDeleted: false,
-        },
-      },
-      {
-        $group: {
-          _id: "$result.riskLevel",
-          count: { $sum: 1 },
-        },
-      },
-    ])
-
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        {
-          totalPredictions,
-          thisMonthPredictions,
-          avgConfidence,
-          riskDistribution,
-        },
-        "Prediction statistics fetched successfully",
-      ),
-    )
+    return res.status(200).json(new ApiResponse(200, result, "Statistics fetched successfully"))
   } catch (error) {
-    console.error("Error fetching prediction stats:", error)
-    throw new ApiError(500, "Failed to fetch prediction statistics")
+    console.error("Error fetching statistics:", error)
+    throw new ApiError(500, "Failed to fetch statistics")
   }
 })
 

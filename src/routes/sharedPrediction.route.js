@@ -1,27 +1,32 @@
 import { Router } from "express"
 import {
-  sharePredictionWithDoctor,
+  sharePrediction,
   getUserSharedPredictions,
   getDoctorReceivedPredictions,
   viewSharedPrediction,
   respondToSharedPrediction,
   revokeSharedPrediction,
 } from "../controllers/sharedPrediction.controller.js"
-import { verifyJWT, authorizeUser, authorizeDoctor } from "../middlewares/auth.middleware.js"
+import { verifyJWT, verifyRole } from "../middlewares/auth.middleware.js"
 
 const router = Router()
 
-// All routes require authentication
-router.use(verifyJWT)
+// Share prediction with doctor (users only)
+router.post("/share", verifyJWT, verifyRole(["user"]), sharePrediction)
 
-// Patient routes
-router.route("/share").post(authorizeUser, sharePredictionWithDoctor)
-router.route("/my-shares").get(authorizeUser, getUserSharedPredictions)
-router.route("/revoke/:shareId").patch(authorizeUser, revokeSharedPrediction)
+// Get user's shared predictions (users only)
+router.get("/my-shares", verifyJWT, verifyRole(["user"]), getUserSharedPredictions)
 
-// Doctor routes
-router.route("/received").get(authorizeDoctor, getDoctorReceivedPredictions)
-router.route("/view/:shareCode").get(authorizeDoctor, viewSharedPrediction)
-router.route("/respond/:shareCode").post(authorizeDoctor, respondToSharedPrediction)
+// Get doctor's received predictions (doctors only)
+router.get("/received", verifyJWT, verifyRole(["doctor"]), getDoctorReceivedPredictions)
+
+// View shared prediction by share code (doctors only)
+router.get("/view/:shareCode", verifyJWT, verifyRole(["doctor"]), viewSharedPrediction)
+
+// Respond to shared prediction (doctors only)
+router.post("/respond/:shareCode", verifyJWT, verifyRole(["doctor"]), respondToSharedPrediction)
+
+// Revoke shared prediction access (users only)
+router.patch("/revoke/:shareId", verifyJWT, verifyRole(["user"]), revokeSharedPrediction)
 
 export default router

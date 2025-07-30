@@ -1,6 +1,6 @@
 import mongoose from "mongoose"
-import jwt from "jsonwebtoken"
 import bcrypt from "bcrypt"
+import jwt from "jsonwebtoken"
 import crypto from "crypto"
 
 const userSchema = new mongoose.Schema(
@@ -11,8 +11,7 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
-      minlength: 3,
-      maxlength: 30,
+      index: true,
     },
     email: {
       type: String,
@@ -25,14 +24,15 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      index: true,
     },
     password: {
       type: String,
-      required: true,
+      required: [true, "Password is required"],
     },
     role: {
       type: String,
-      enum: ["admin", "doctor", "user"],
+      enum: ["user", "doctor", "admin"],
       default: "user",
     },
     // Doctor-specific fields
@@ -44,11 +44,11 @@ const userSchema = new mongoose.Schema(
     },
     licenseNumber: {
       type: String,
+      unique: true,
+      sparse: true,
       required: function () {
         return this.role === "doctor"
       },
-      unique: true,
-      sparse: true,
     },
     experience: {
       type: Number,
@@ -56,50 +56,23 @@ const userSchema = new mongoose.Schema(
         return this.role === "doctor"
       },
     },
-    avatar: {
-      url: {
-        type: String,
-        default: "",
-      },
-      publicId: {
-        type: String,
-        default: "",
-      },
-    },
-    refreshToken: {
-      type: String,
-    },
-    otp: {
-      code: {
-        type: String,
-      },
-      expiresAt: {
-        type: Date,
-      },
-    },
     isVerified: {
       type: Boolean,
       default: false,
     },
-    roleHistory: [
-      {
-        previousRole: String,
-        newRole: String,
-        changedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-        },
-        changedAt: {
-          type: Date,
-          default: Date.now,
-        },
-        reason: String,
-      },
-    ],
+    otp: {
+      code: String,
+      expiresAt: Date,
+    },
+    refreshToken: {
+      type: String,
+    },
     resetPasswordToken: String,
     resetPasswordExpire: Date,
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+  },
 )
 
 userSchema.pre("save", async function (next) {
@@ -122,7 +95,9 @@ userSchema.methods.generateAccessToken = function () {
       role: this.role,
     },
     process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY },
+    {
+      expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "15m",
+    },
   )
 }
 
@@ -132,7 +107,9 @@ userSchema.methods.generateRefreshToken = function () {
       _id: this._id,
     },
     process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY },
+    {
+      expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d",
+    },
   )
 }
 
@@ -148,19 +125,8 @@ userSchema.methods.generateOTP = function () {
 userSchema.methods.getResetPasswordToken = function () {
   const resetToken = crypto.randomBytes(20).toString("hex")
   this.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex")
-  this.resetPasswordExpire = Date.now() + 15 * 60 * 1000
+  this.resetPasswordExpire = Date.now() + 15 * 60 * 1000 // 15 minutes
   return resetToken
-}
-
-userSchema.methods.updateRole = function (newRole, changedBy, reason = "") {
-  const previousRole = this.role
-  this.role = newRole
-  this.roleHistory.push({
-    previousRole,
-    newRole,
-    changedBy,
-    reason,
-  })
 }
 
 export const User = mongoose.model("User", userSchema)

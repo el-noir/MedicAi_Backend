@@ -65,6 +65,7 @@ app.get("/health", (req, res) => {
   })
 })
 
+
 // Error handling middleware (should be last)
 app.use(errorMiddleware)
 

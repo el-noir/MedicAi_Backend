@@ -49,6 +49,25 @@ export const verifyJWT = async (req, res, next) => {
   }
 }
 
+// Role verification middleware
+export const verifyRole = (allowedRoles) => {
+  return (req, res, next) => {
+    try {
+      if (!req.user) {
+        throw new ApiError(401, "User not authenticated")
+      }
+
+      if (!allowedRoles.includes(req.user.role)) {
+        throw new ApiError(403, `Access denied. Required roles: ${allowedRoles.join(", ")}`)
+      }
+
+      next()
+    } catch (error) {
+      next(error)
+    }
+  }
+}
+
 export const authorizeUser = (req, res, next) => {
   if (req.user.role !== "user" && req.user.role !== "admin") {
     throw new ApiError(403, "Access denied. User role required.")
