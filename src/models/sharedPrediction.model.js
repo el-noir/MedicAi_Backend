@@ -25,23 +25,24 @@ const sharedPredictionSchema = new mongoose.Schema(
     },
     message: {
       type: String,
-      default: "",
+      maxlength: 500,
     },
     status: {
       type: String,
-      enum: ["active", "responded", "revoked"],
-      default: "active",
+      enum: ["pending", "viewed", "responded", "revoked"],
+      default: "pending",
     },
     doctorResponse: {
       type: String,
-      default: "",
+      maxlength: 1000,
     },
     doctorRecommendations: [
       {
         type: String,
+        maxlength: 200,
       },
     ],
-    lastViewedAt: {
+    viewedAt: {
       type: Date,
     },
     respondedAt: {
@@ -56,9 +57,10 @@ const sharedPredictionSchema = new mongoose.Schema(
   },
 )
 
-// Index for efficient queries
+// Indexes for efficient queries
 sharedPredictionSchema.index({ userId: 1, createdAt: -1 })
-sharedPredictionSchema.index({ doctorId: 1, status: 1, createdAt: -1 })
-sharedPredictionSchema.index({ shareCode: 1, doctorId: 1 })
+sharedPredictionSchema.index({ doctorId: 1, createdAt: -1 })
+sharedPredictionSchema.index({ shareCode: 1 })
+sharedPredictionSchema.index({ status: 1 })
 
 export const SharedPrediction = mongoose.model("SharedPrediction", sharedPredictionSchema)

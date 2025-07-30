@@ -117,10 +117,10 @@ export const sendPasswordResetEmail = async (user, resetUrl) => {
         </p>
         
         <div style="text-align: center; margin-bottom: 20px;">
-          <a href="${resetUrl}"
+          <a href="${resetUrl}" 
              style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                 color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px;
-                 font-weight: bold; font-size: 16px;">
+                   color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px;
+                   font-weight: bold; font-size: 16px;">
             Reset Your Password
           </a>
         </div>
@@ -144,6 +144,7 @@ export const sendPasswordResetEmail = async (user, resetUrl) => {
     html,
   })
 }
+<<<<<<< HEAD
 
 export const sendPredictionShareEmail = async (patient, doctor, sharedPrediction) => {
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173"
@@ -243,3 +244,5 @@ export const sendDoctorNotificationEmail = async (doctor, patient, sharedPredict
     html,
   })
 }
+=======
+>>>>>>> parent of 6fc7e86 (Predication Data Access to Doctor)
